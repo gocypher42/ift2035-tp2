@@ -78,22 +78,33 @@ elaborate(_, E, _, _) :-
 elaborate(_, N, T, N) :- number(N), !, T = int.
 elaborate(Env, lambda(X,E), T, lambda(DE)) :-
     !, elaborate([(X,T1)|Env], E, T2, DE), T = (T1 -> T2).
-elaborate(Env,+(E1,E2), T, V):- 
+elaborate(Env, +(E1, E2), T, V):- 
     !,
-    elaborate(Env,E1,T1,V1),
-    elaborate(Env, E2, T2, V2),
-    T=int,
-    V=app(app(var(0),V1),V2).
-    %%V=app(app(var(+),V1)V2).
-%% elaborate([(V,TV)|Tail], N, T, N) :-  DE = N,! ,TV=int, T=int.
-%% elaborate(Env, N, T, N) :- DE is N, !, T= int.
+    (atom(E1) ->
+     set_var_type(E1, int, Env),
+     find_idx(E1, Env, Id1),
+     V1 = var(Id1);
+     elaborate(Env, E1, _, V1)),
+    (atom(E2) ->
+     set_var_type(E2, int, Env),
+     find_idx(E2, Env, Id2),
+     V2 = var(Id2);
+     elaborate(Env, E2, _, V2)),
+    find_idx((+), Env, Id),
+    T = int,
+    V = app(app(var(Id),V1),V2).
+
+
+
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
 
-find_idx([(V,_)|Envs], Item, Idx) :-
-find_idx([], _,_) :- 
-    debug_print(var_not_in_env), fail.
+find_idx(Var, [(Var,_)| _], Idx) :- !, Idx = 0.
+find_idx(Var, [_|Envs], Idx):- find_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
+
+set_var_type(Var, T, [(Var, T)|Envs]) :- !.
+set_var_type(Var, T, [_|Envs]) :- set_var_type(Var, T, Envs).
 
 
 
