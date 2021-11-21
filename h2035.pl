@@ -80,21 +80,31 @@ elaborate(Env, lambda(X,E), T, lambda(DE)) :-
     !, elaborate([(X,T1)|Env], E, T2, DE), T = (T1 -> T2).
 elaborate(Env, +(E1, E2), T, V):- 
     !,
-    (atom(E1) ->
-     set_var_type(E1, int, Env),
-     find_idx(E1, Env, Id1),
-     V1 = var(Id1);
-     elaborate(Env, E1, _, V1)),
-    (atom(E2) ->
-     set_var_type(E2, int, Env),
-     find_idx(E2, Env, Id2),
-     V2 = var(Id2);
-     elaborate(Env, E2, _, V2)),
+    elaborate(Env, E1 , _, V1),
+    V1 =.. [Head1|_],
+    (Head1 = var -> set_var_type(E1, int, Env) ; V1 = V1),
+    eLaborate(Env, E2 , _, V2),
+    V2 =.. [Head2|_],
+    (Head2 = var -> set_var_type(E2, int, Env) ; V2 = V2),
     find_idx((+), Env, Id),
     T = int,
     V = app(app(var(Id),V1),V2).
-
-
+elaborate(Env, N, _, V) :- atom(N), !, find_idx(N, Env, Id), V = var(Id).
+elaborate(Env, app(E1, E2), T, V) :- 
+    !,
+    elaborate(Env, E1, ->(TI, TO), V1),
+    elaborate(Env, E2, T2, V2),
+    (IT = T2 -> T = TO, V = app(V1, V2)).
+elaborate(Env, F, T, V) :-  
+    F =.. [Name|Args],
+    split_last(Args, Args-1, Last),
+    elaborate(Env, Last, TL, VL),
+    F-1 =.. [Name|Args-1],
+    elaborate(Env, F-1, T-1, V-1),
+    %% gen_func_arg_type(Env, Args, TFO, TA),
+    TF = TBT ,
+    set_var_type(Name, TF, Env),
+    V = app(V-1, VL).
 
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
@@ -103,11 +113,26 @@ elaborate(_, E, _, _) :-
 find_idx(Var, [(Var,_)| _], Idx) :- !, Idx = 0.
 find_idx(Var, [_|Envs], Idx):- find_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
 
-set_var_type(Var, T, [(Var, T)|Envs]) :- !.
+set_var_type(Var, T, [(Var, T)|_]) :- !.
 set_var_type(Var, T, [_|Envs]) :- set_var_type(Var, T, Envs).
 
+gen_func_arg_type(Env, [Arg|[]], TO, RT) :- 
+    elaborate(Env, Arg, T, _),
+    RT = (T -> TO).
+gen_func_arg_type(Env, [Arg|Args], TO, T) :- elaborate(Env, Arg, T1, _), 
+    gen_func_arg_type(Env, Args, TO, T2),
+    T = (T1 -> T2).
 
+split_last([X|XS], [X|X_1]):-
+    split_last(XS, X_1).
+without_last([X|Xs], [X|WithoutLast]) :- 
+    without_last(Xs, WithoutLast).
+list_butlast([X|Xs], Ys) :-                 % use auxiliary predicate ...
+   list_butlast_prev(Xs, Ys, X).            % ... which lags behind by one item
 
+list_butlast_prev([], [], _).
+list_butlast_prev([X1|Xs], [X0|Ys], X0) :-  
+   list_butlast_prev(Xs, Ys, X1).           % lag behind by one
 %% Ci-dessous, quelques prédicats qui vous seront utiles:
 %% - instantiate: correspond à la règle "σ ⊂ τ" de la donnée.
 %% - freelvars: correspond au "fv" de la donnée.
