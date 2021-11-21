@@ -83,7 +83,7 @@ elaborate(Env, +(E1, E2), T, V):-
     elaborate(Env, E1 , _, V1),
     V1 =.. [Head1|_],
     (Head1 = var -> set_var_type(E1, int, Env) ; V1 = V1),
-    eLaborate(Env, E2 , _, V2),
+    elaborate(Env, E2 , _, V2),
     V2 =.. [Head2|_],
     (Head2 = var -> set_var_type(E2, int, Env) ; V2 = V2),
     find_idx((+), Env, Id),
@@ -92,23 +92,29 @@ elaborate(Env, +(E1, E2), T, V):-
 elaborate(Env, N, _, V) :- atom(N), !, find_idx(N, Env, Id), V = var(Id).
 elaborate(Env, app(E1, E2), T, V) :- 
     !,
-    elaborate(Env, E1, ->(TI, TO), V1),
     elaborate(Env, E2, T2, V2),
-    (IT = T2 -> T = TO, V = app(V1, V2)).
+    elaborate(Env, E1, ->(TI, TO), V1),
+    % (IT = T2 -> T = TO; T=TO),
+    get_last_type(T2, T),
+    V = app(V1, V2).
 elaborate(Env, F, T, V) :-  
-    F =.. [Name|Args],
-    split_last(Args, Args-1, Last),
-    elaborate(Env, Last, TL, VL),
-    F-1 =.. [Name|Args-1],
-    elaborate(Env, F-1, T-1, V-1),
-    %% gen_func_arg_type(Env, Args, TFO, TA),
-    TF = TBT ,
+    F =.. [Name|Args], 
+    !,
+    split_last_arg(Args, NewArgs, Last),
+    New_F =.. [Name|NewArgs],
+    elaborate(Env, Last, TLast, VLast),
+    insert_type(Tlast, TF, TN),
+    TF = (TLast -> TNew_F),
     set_var_type(Name, TF, Env),
-    V = app(V-1, VL).
+    elaborate(Env, New_F, TNew_F, VNew_F),
+    T = T5,
+    V = app(VNew_F, VLast).
 
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
+
+
 
 find_idx(Var, [(Var,_)| _], Idx) :- !, Idx = 0.
 find_idx(Var, [_|Envs], Idx):- find_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
@@ -123,16 +129,25 @@ gen_func_arg_type(Env, [Arg|Args], TO, T) :- elaborate(Env, Arg, T1, _),
     gen_func_arg_type(Env, Args, TO, T2),
     T = (T1 -> T2).
 
-split_last([X|XS], [X|X_1]):-
-    split_last(XS, X_1).
-without_last([X|Xs], [X|WithoutLast]) :- 
-    without_last(Xs, WithoutLast).
-list_butlast([X|Xs], Ys) :-                 % use auxiliary predicate ...
-   list_butlast_prev(Xs, Ys, X).            % ... which lags behind by one item
+split_last_arg([X|[]], [], X) :- !. 
+split_last_arg([X|XS], [X|T], Last) :- 
+    split_last_arg(XS, T, Last).
 
-list_butlast_prev([], [], _).
-list_butlast_prev([X1|Xs], [X0|Ys], X0) :-  
-   list_butlast_prev(Xs, Ys, X1).           % lag behind by one
+% insert_type_to_func(Name, InsertType, [(Name, )])
+
+get_type_from_var_env(Name, [(Name, T)|_], T).
+get_type_from_var_env(Name, [_|Envs], T) :- 
+    get_type_from_var_env(Name,Envs, T).
+
+insert_type(Type_to_add, Type, (Type_to_add -> Type)).
+
+
+get_last_type(Type, Last) :- atom(Type), !, Last = Type.
+get_last_type(->(T1,T2), Last) :- !, get_last_type(T2, Last).  
+
+
+
+
 %% Ci-dessous, quelques prédicats qui vous seront utiles:
 %% - instantiate: correspond à la règle "σ ⊂ τ" de la donnée.
 %% - freelvars: correspond au "fv" de la donnée.
@@ -286,7 +301,8 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %% Exemples d'usage:
 %% runeval(1 + 2, T, V).
 %% runeval(app(lambda(x,x+1),3), T, V).
-%% 
+%% runelab(app(lambda(f,f(3))), T, V).
+
 %% runeval(app(lambda(f,f(3)),lambda(x,x+1)), T, V).
 %% runeval(let([x = 1], 3 + x), T, V).
 %% runeval(let(f(x) = x+1, f(3)), T, V).
