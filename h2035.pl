@@ -82,7 +82,10 @@ elaborate(Env, +(E1, E2), T, V):-
     !,
     elaborate(Env, E1 , _, V1),
     V1 =.. [Head1|_],
-    (Head1 = var -> set_var_type(E1, int, Env) ; V1 = V1),
+    (   Head1 = var 
+    ->  set_var_type(E1, int, Env) 
+    ;   V1 = V1
+    ),
     elaborate(Env, E2 , _, V2),
     V2 =.. [Head2|_],
     (Head2 = var -> set_var_type(E2, int, Env) ; V2 = V2),
@@ -98,12 +101,11 @@ elaborate(Env, app(E1, E2), T, V) :-
     V = app(V1, V2).
 
 elaborate(Env, let([=(X,E1)|_], E2), T, V) :- 
-    !,
-    X =.. [VarName|Args],
-    (Args = []-> 
-        NewEnv = Env,
-        elaborate(NewEnv, E1, T1, V1) ;
-        insert_var_in_env(Env, Args, NewEnv),
+    !, X =.. [VarName|Args],
+    (   Args = []
+    ->  NewEnv = Env,
+        elaborate(NewEnv, E1, T1, V1)
+    ;   insert_var_in_env(Env, Args, NewEnv),
         elaborate(NewEnv, E1, T1, VF),
         V1 = lambda(VF)
     ),
@@ -114,12 +116,12 @@ elaborate(Env, let([=(X,E1)|_], E2), T, V) :-
 elaborate(Env, F, T, V) :-  
     F =.. [Name|Args], 
     !,
-    (Name = let -> 
-        split_last_arg(Args, NewArgs, E),
-        Test = let(NewArgs, E),
-        elaborate(Env, Test, T, V);
-        elab_function(Env, Name, Args, T, V)
+    (   Name = let 
+    ->  split_last_arg(Args, NewArgs, E), 
+        elaborate(Env, let(NewArgs, E), T, V)
+    ;   elab_function(Env, Name, Args, T, V)
     ).
+
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
@@ -154,9 +156,9 @@ split_last_arg([X|XS], [X|T], Last) :-
     split_last_arg(XS, T, Last).
 
 insert_var_in_env(Env, [Var|Vars], NewEnv) :-
-    (Vars = [] -> 
-        NewEnv = [(Var, _)|Env] ;
-        insert_var_in_env([(Var, _)|Env], Vars, NewEnv)
+    (   Vars = [] 
+    ->  NewEnv = [(Var, _)|Env] 
+    ;   insert_var_in_env([(Var, _)|Env], Vars, NewEnv)
     ).
 
 % insert_type_to_func(Name, InsertType, [(Name, )])
@@ -264,10 +266,11 @@ eval(Env, let(Elements, E), V) :-
     !,
     Elements = [HEAD|TAIL],
     eval(Env, HEAD, VHEAD),
-    (TAIL = [] ->
-        eval([VHEAD|Env], E, V);
-        eval([VHEAD|Env], let(TAIL, E), V)
+    (   TAIL = [] 
+    ->  eval([VHEAD|Env], E, V)
+    ;   eval([VHEAD|Env], let(TAIL, E), V)
     ).
+
 %% ¡¡ REMPLIR ICI !!
 eval(_, E, _) :-
     debug_print(eval_unknown(E)), fail.
