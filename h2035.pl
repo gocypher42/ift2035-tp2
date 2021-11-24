@@ -93,11 +93,11 @@ elaborate(Env, N, _, V) :- atom(N), !, find_idx(N, Env, Id), V = var(Id).
 elaborate(Env, app(E1, E2), T, V) :- 
     !,
     elaborate(Env, E2, T2, V2),
-    elaborate(Env, E1, ->(TI, TO), V1),
+    elaborate(Env, E1, ->(_, _), V1),
     get_last_type(T2, T),
     V = app(V1, V2).
 
-elaborate(Env, let([=(X,E1)|TAIL], E2), T, V) :- 
+elaborate(Env, let([=(X,E1)|_], E2), T, V) :- 
     !,
     X =.. [VarName|Args],
     (Args = []-> 
@@ -107,7 +107,7 @@ elaborate(Env, let([=(X,E1)|TAIL], E2), T, V) :-
         elaborate(NewEnv, E1, T1, VF),
         V1 = lambda(VF)
     ),
-    elaborate([(VarName,TF)|Env], E2, T2, V2),
+    elaborate([(VarName,_)|Env], E2, _, V2),
     T = T1,
     V = let([V1], V2).
 
@@ -127,9 +127,9 @@ elaborate(_, E, _, _) :-
 elab_function(Env, Name, Args, T, V) :-
     split_last_arg(Args, NewArgs, Last),
     New_F =.. [Name|NewArgs],
-    elaborate(Env, Last, TLast, VLast),
-    insert_type(Tlast, TF, TN),
-    TF = (TLast -> TNew_F),
+    elaborate(Env, Last, _, VLast),
+    insert_type(_, TF, _),
+    TF = (_ -> TNew_F),
     set_var_type(Name, TF, Env),
     elaborate(Env, New_F, TNew_F, VNew_F),
     T = T5,
@@ -155,8 +155,8 @@ split_last_arg([X|XS], [X|T], Last) :-
 
 insert_var_in_env(Env, [Var|Vars], NewEnv) :-
     (Vars = [] -> 
-        NewEnv = [(Var, T)|Env] ;
-        insert_var_in_env([(Var, T)|Env], Vars, NewEnv)
+        NewEnv = [(Var, _)|Env] ;
+        insert_var_in_env([(Var, _)|Env], Vars, NewEnv)
     ).
 
 % insert_type_to_func(Name, InsertType, [(Name, )])
@@ -169,7 +169,7 @@ insert_type(Type_to_add, Type, (Type_to_add -> Type)).
 
 
 get_last_type(Type, Last) :- atom(Type), !, Last = Type.
-get_last_type(->(T1,T2), Last) :- !, get_last_type(T2, Last).  
+get_last_type(->(_,T2), Last) :- !, get_last_type(T2, Last).  
 
 
 
@@ -266,7 +266,7 @@ eval(Env, let(Elements, E), V) :-
     eval(Env, HEAD, VHEAD),
     (TAIL = [] ->
         eval([VHEAD|Env], E, V);
-        eval([VHEAD|Env], let(Tail, E), V)
+        eval([VHEAD|Env], let(TAIL, E), V)
     ).
 %% ¡¡ REMPLIR ICI !!
 eval(_, E, _) :-
