@@ -90,14 +90,9 @@ elaborate(Env, +(E1, E2), T, V):-
     V2 =.. [Head2|_],
     (Head2 = var -> set_var_type(E2, int, Env) ; V2 = V2),
     find_idx((+), Env, Id),
-    (   atom(E1), atom(E2) 
-    ->  T = (int -> int) 
-    ;   (   (atom(E1); atom(E2))
-        ->  T = int 
-        ;   T = int)
-    ),
+    ((atom(E1), atom(E2)) -> T = (int -> int) ; T = int),
     V = app(app(var(Id),V1),V2).
-elaborate(Env, N, T, V) :- atom(N), !, find_idx(N, Env, Id),
+elaborate(Env, N, T, V) :- atom(N), !,find_elem_idx(N, Env, Id),
     get_type_from_var_env(N, Env, T), V = var(Id).
 elaborate(Env, app(E1, E2), T, V) :- 
     !,
@@ -110,12 +105,9 @@ elaborate(Env, app(E1, E2), T, V) :-
 elaborate(Env, let([X|XS], E), T, V) :-
     !,
     decompose(Env, [X|XS], [], NewEnv, LetExp),
-    writeln(NewEnv),
-    writeln(LetExp),
-    elaborate(NewEnv, E, TE, VE),
-    T = TE,
+    elaborate(NewEnv, E, T, VE),
     V = let(LetExp, VE).
-elaborate(Env, F, T, V) :-  
+elaborate(Env, F, T, V) :- 
     F =.. [Name|Args], 
     not(Args = []),
     !,
@@ -128,12 +120,29 @@ elaborate(Env, F, T, V) :-
         ->  build_func_type(NVars, TF)
         ;   TF = TF
         ),
-        elaborate(Env, Arg, TA, VA),
-        get_arg_type_from_func(TF, NVars, FTA),
-        FTA = TA,
+        elaborate(Env, Arg, TA_, VA),
+        get_arg_type_from_func(TF, NVars, FTA_),
+        writeln(FTA_),
+        (   FTA_ = forall(_,TTF)  
+        ->  FTA = TTF
+        ;   FTA = FTA_
+        ),
+        writeln(FTA),
         NF =.. [Name|NewArgs],
-        elaborate(Env, NF, TF_, VF),
-        (not(atom(Arg)) -> TF_ = ->(_,T)),
+        (   atom(NF) 
+        ->  find_func_idx(NF, Env, Fidx),
+            nth_elem(Fidx, Env, (_,TF_)),
+            VF = var(Fidx)
+        ; elaborate(Env, NF, TF_, VF)),
+        writeln(TF_),
+        (   TF_ = forall(_,_) 
+        ->  T = TF 
+        ;   (   not(atom(Arg)) 
+            ->  TF_ = ->(_,T) 
+            ;   T = TF_ 
+            )
+        ),
+        writeln(VA),
         V = app(VF, VA)
     ).
 
@@ -147,9 +156,8 @@ decompose(Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
     X =.. [VarName|Args],
     (Args = [] 
     ->  elaborate(Env, E, T, V)
-    ;   insert_var_in_env(Env, Args, TempEnv),
-        elaborate(TempEnv, E, T, V2),
-        V = lambda(V2)
+    ;   Args = [Arg],
+        elaborate(Env, lambda(Arg, E), T, V)
     ),
     decompose([(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
 
@@ -173,7 +181,7 @@ elab_function(Env, Name, Args, T, V) :-
         ;   (   TF = forall(_,_) 
             ->  T = TF
             ;   get_last_type(TF, TFunc)
-            ), freelvars(Env, LEnv), write(LEnv)
+            ) 
         ),
         VNew_F = var(Fidx)
     ;  elaborate(Env, New_F, TFunc, VNew_F)
@@ -191,11 +199,14 @@ find_func_idx(Var, [_|Envs], Idx):-
     find_func_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
 
 find_elem_idx(Var, [(Var, T)|Envs], Idx) :- 
-    T =.. [HEAD|TAIL], 
-    (HEAD = (->) 
-    ->  find_elem_idx(Var, Envs, Idx_),
-        Idx is Idx_ + 1
-    ;   Idx = 0
+    (   var(T) 
+    ->  Idx = 0 
+    ;   T =.. [HEAD|TAIL], 
+        (   HEAD = (->) 
+        ->  find_elem_idx(Var, Envs, Idx_),
+            Idx is Idx_ + 1
+        ;   Idx = 0
+        )
     ).
 find_elem_idx(Var, [_|Envs], Idx):- 
     find_elem_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
@@ -416,6 +427,7 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 
 %% runeval(cons(1,nil), T, V).
 %% runeval(?(1,nil), T, V).
+
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
 %%             length(?(42,?(41,?(40,nil))))
 %%             + length(cons(1,nil))),
