@@ -90,59 +90,121 @@ elaborate(Env, +(E1, E2), T, V):-
     V2 =.. [Head2|_],
     (Head2 = var -> set_var_type(E2, int, Env) ; V2 = V2),
     find_idx((+), Env, Id),
-    T = int,
+    (   atom(E1), atom(E2) 
+    ->  T = (int -> int) 
+    ;   (   (atom(E1); atom(E2))
+        ->  T = int 
+        ;   T = int)
+    ),
     V = app(app(var(Id),V1),V2).
-elaborate(Env, N, _, V) :- atom(N), !, find_idx(N, Env, Id), V = var(Id).
+elaborate(Env, N, T, V) :- atom(N), !, find_idx(N, Env, Id),
+    get_type_from_var_env(N, Env, T), V = var(Id).
 elaborate(Env, app(E1, E2), T, V) :- 
     !,
     elaborate(Env, E2, T2, V2),
-    elaborate(Env, E1, ->(_, _), V1),
-    get_last_type(T2, T),
+    elaborate(Env, E1, TF, V1),
+    TF =.. [->|[TI|[TO]]],
+    T2 = TI,
+    (var(TO) -> T = int ; T = TO),
     V = app(V1, V2).
-
-elaborate(Env, let([=(X,E1)|_], E2), T, V) :- 
-    !, X =.. [VarName|Args],
-    (   Args = []
-    ->  NewEnv = Env,
-        elaborate(NewEnv, E1, T1, V1)
-    ;   insert_var_in_env(Env, Args, NewEnv),
-        elaborate(NewEnv, E1, T1, VF),
-        V1 = lambda(VF)
-    ),
-    elaborate([(VarName,_)|Env], E2, _, V2),
-    T = T1,
-    V = let([V1], V2).
-
+elaborate(Env, let([X|XS], E), T, V) :-
+    !,
+    decompose(Env, [X|XS], [], NewEnv, LetExp),
+    writeln(NewEnv),
+    writeln(LetExp),
+    elaborate(NewEnv, E, TE, VE),
+    T = TE,
+    V = let(LetExp, VE).
 elaborate(Env, F, T, V) :-  
     F =.. [Name|Args], 
+    not(Args = []),
     !,
+    split_last_arg(Args, NewArgs, Arg),
     (   Name = let 
-    ->  split_last_arg(Args, NewArgs, E), 
-        elaborate(Env, let(NewArgs, E), T, V)
-    ;   elab_function(Env, Name, Args, T, V)
+    ->  elaborate(Env, let(NewArgs, Arg), T, V)
+    ;   get_type_from_var_env(Name, Env, TF),
+        number_of_args(Args, NVars),
+        (   var(TF) 
+        ->  build_func_type(NVars, TF)
+        ;   TF = TF
+        ),
+        elaborate(Env, Arg, TA, VA),
+        get_arg_type_from_func(TF, NVars, FTA),
+        FTA = TA,
+        NF =.. [Name|NewArgs],
+        elaborate(Env, NF, TF_, VF),
+        (not(atom(Arg)) -> TF_ = ->(_,T)),
+        V = app(VF, VA)
     ).
 
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
 
+decompose(Env, [], LetExp, Env, NewLetExp) :- reverse(LetExp, NewLetExp, []).
+decompose(Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
+    !,
+    X =.. [VarName|Args],
+    (Args = [] 
+    ->  elaborate(Env, E, T, V)
+    ;   insert_var_in_env(Env, Args, TempEnv),
+        elaborate(TempEnv, E, T, V2),
+        V = lambda(V2)
+    ),
+    decompose([(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
+
+reverse([],Z,Z).
+reverse([H|T],Z,Acc) :- reverse(T,Z,[H|Acc]).
+
 elab_function(Env, Name, Args, T, V) :-
     split_last_arg(Args, NewArgs, Last),
+    (   atom(Last)
+    ->  find_elem_idx(Last, Env, EIdx),
+        VLast = var(EIdx)
+    ;   elaborate(Env, Last, TLast, VLast)
+    ),
     New_F =.. [Name|NewArgs],
-    elaborate(Env, Last, _, VLast),
-    insert_type(_, TF, _),
-    TF = (_ -> TNew_F),
-    set_var_type(Name, TF, Env),
-    elaborate(Env, New_F, TNew_F, VNew_F),
-    T = T5,
+    (   atom(New_F)
+    ->  find_func_idx(New_F, Env, Fidx),
+        get_type_from_var_env(New_F, Env, TF),
+        TF =.. [HEAD|TAIL],
+        (   (TF = ->(T1,T2), var(T2)) 
+        ->  T1 = TLast
+        ;   (   TF = forall(_,_) 
+            ->  T = TF
+            ;   get_last_type(TF, TFunc)
+            ), freelvars(Env, LEnv), write(LEnv)
+        ),
+        VNew_F = var(Fidx)
+    ;  elaborate(Env, New_F, TFunc, VNew_F)
+    ),
+    T = TFunc,
     V = app(VNew_F, VLast).
 
 
 find_idx(Var, [(Var,_)| _], Idx) :- !, Idx = 0.
 find_idx(Var, [_|Envs], Idx):- find_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
 
+find_func_idx(Var, [(Var, forall(T, ->(T2, T3)))|_], Idx) :- Idx = 0.
+find_func_idx(Var, [(Var, ->(_,_))|_], Idx) :- Idx = 0.
+find_func_idx(Var, [_|Envs], Idx):- 
+    find_func_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
+
+find_elem_idx(Var, [(Var, T)|Envs], Idx) :- 
+    T =.. [HEAD|TAIL], 
+    (HEAD = (->) 
+    ->  find_elem_idx(Var, Envs, Idx_),
+        Idx is Idx_ + 1
+    ;   Idx = 0
+    ).
+find_elem_idx(Var, [_|Envs], Idx):- 
+    find_elem_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
+
 set_var_type(Var, T, [(Var, T)|_]) :- !.
 set_var_type(Var, T, [_|Envs]) :- set_var_type(Var, T, Envs).
+
+number_of_args([], N) :- !, N = 0.
+number_of_args([_|XS], N) :- number_of_args(XS, N_), N is N_ + 1.
 
 gen_func_arg_type(Env, [Arg|[]], TO, RT) :- 
     elaborate(Env, Arg, T, _),
@@ -161,7 +223,6 @@ insert_var_in_env(Env, [Var|Vars], NewEnv) :-
     ;   insert_var_in_env([(Var, _)|Env], Vars, NewEnv)
     ).
 
-% insert_type_to_func(Name, InsertType, [(Name, )])
 
 get_type_from_var_env(Name, [(Name, T)|_], T).
 get_type_from_var_env(Name, [_|Envs], T) :- 
@@ -173,8 +234,18 @@ insert_type(Type_to_add, Type, (Type_to_add -> Type)).
 get_last_type(Type, Last) :- atom(Type), !, Last = Type.
 get_last_type(->(_,T2), Last) :- !, get_last_type(T2, Last).  
 
+build_func_type(1, TF) :- !, TF = (TI -> TO).
+build_func_type(VarCount, TFunc) :- build_func_type(VarCount, TO, TFunc).
+build_func_type(1, Acc, (TI -> Acc)).
+build_func_type(VarCount, Acc, TFunc) :- 
+    VarCount_ is VarCount -1,
+    build_func_type(VarCount_, (TI -> Acc), TFunc).
 
+get_arg_type_from_func(->(TA,_), 1, T) :- !, T = TA.
+get_arg_type_from_func(->(_, TS), N, T) :- N_ is N - 1, get_arg_type_from_func(TS, N_, T).
 
+set_arg_type_func(T, ->(T,_), N) :- N = 1, !.
+set_arg_type_func(T, ->(_,TFS), N) :- N_ is N - 1, set_arg_type_func(T, TFS, N_).
 
 %% Ci-dessous, quelques prédicats qui vous seront utiles:
 %% - instantiate: correspond à la règle "σ ⊂ τ" de la donnée.
@@ -338,12 +409,11 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %% Exemples d'usage:
 %% runeval(1 + 2, T, V).
 %% runeval(app(lambda(x,x+1),3), T, V).
-%% runelab(app(lambda(f,f(3))), T, V).
 %% runeval(app(lambda(f,f(3)),lambda(x,x+1)), T, V).
 %% runeval(let([x = 1], 3 + x), T, V).
-
 %% runeval(let(f(x) = x+1, f(3)), T, V).
 %% runeval(let([x = 1, x = lambda(a, a + 1)], (3 + x(x))), T, V).
+
 %% runeval(cons(1,nil), T, V).
 %% runeval(?(1,nil), T, V).
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
