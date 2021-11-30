@@ -81,13 +81,13 @@ elaborate(Env, lambda(X,E), T, lambda(DE)) :-
 elaborate(Env, +(E1, E2), T, V):- 
     !,
     elaborate(Env, app(app((+),E1),E2), T, V).
-elaborate(_, ?, T, V).
 elaborate(Env, N, T, V) :- 
     atom(N), !,
     find_idx(N, Env, Id),
     nth_elem(Id, Env,(_,T)),
     V = var(Id).
 elaborate(Env, app(E1, E2), T, V) :- 
+    writeln(Env),
     !,
     (   atom(E2) 
     ->  find_elem_idx(E2, Env, Aidx), 
@@ -100,11 +100,19 @@ elaborate(Env, app(E1, E2), T, V) :-
     ;   T2 = T2_
     ),
     elaborate(Env, E1, TF, V1),
-     (   not(var(TF)), TF = forall(t, TFA) 
-        ->  rebuild_forall(TF, T2, TI),
-            TI = ->(T2,T)
-        ;   TF = ->(T2, TO),
-            (T2 = ->(TI, T) ; T = TO)
+    (   not(var(TF)), TF = forall(t, TFA) 
+    ->  rebuild_forall(TF, T2, TI),
+        TI = ->(T2,T)
+    ;   TF = ->(T2, TO),
+        (   T2 = ->(TI, TO)
+        ->  T = TO 
+        ;   T = TO
+        )
+    ),
+    (   find_idx(?, Env, IncId) 
+    ->  nth_elem(IncId, Env, (_,TInc)),
+        TInc = T2_
+    ;  T2 = T2 
     ),
     V = app(V1, V2).
 elaborate(Env, let([X|XS], E), T, V) :-
@@ -112,11 +120,6 @@ elaborate(Env, let([X|XS], E), T, V) :-
     decompose(Env, [X|XS], [], NewEnv, LetExp),
     elaborate(NewEnv, E, T, VE),
     V = let(LetExp, VE).
-elaborate(Env, F, T, V) :-
-    F =.. [Name|Args],
-    Name = asafas,
-    !,
-    aborate(Env, lambda(Name, F), T, V).
 elaborate(Env, F, T, V) :- 
     F =.. [Name|Args], 
     not(Args = []),
@@ -124,9 +127,12 @@ elaborate(Env, F, T, V) :-
     split_last_arg(Args, NewArgs, Arg),
     (   Name = let 
     ->  elaborate(Env, let(NewArgs, Arg), T, V)
-    ;   
+    ;   (   Name = ?, not(find_idx(?, Env, Id))
+        ->  NEnv = [(?,TInc)|Env]
+        ;   NEnv = Env
+        ),
         NF =.. [Name|NewArgs],
-        elaborate(Env, app(NF, Arg), T, V),
+        elaborate(NEnv, app(NF, Arg), T, V)
     ).
 
 %% ¡¡ REMPLIR ICI !!
