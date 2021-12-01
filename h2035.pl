@@ -100,33 +100,46 @@ elaborate(Env, app(E1, E2), T, V) :-
     ;   T2 = T2_
     ),
     elaborate(Env, E1, TF, V1),
-     (   not(var(TF)), TF = forall(t, TFA) 
-        ->  rebuild_forall(TF, T2, TI),
-            TI = ->(T2,T)
-        ;   TF = ->(T2, TO),
-            (T2 = ->(TI, T) ; T = TO)
+    (   not(var(TF)), TF = forall(t, TFA) 
+    ->  rebuild_forall(TF, TU, TI),
+        TI = ->(T2,T)
+    ;   TF = ->(T2, TO),
+        (T2 = ->(TI, T) ; T = TO)
     ),
     V = app(V1, V2).
 elaborate(Env, let([X|XS], E), T, V) :-
     !,
-    decompose(Env, [X|XS], [], NewEnv, LetExp),
+    decompose(Env, Env, [X|XS], [], NewEnv, LetExp),
+    writeln(LetExp),
     elaborate(NewEnv, E, T, VE),
     V = let(LetExp, VE).
+elaborate(Env, if(E1,E2,E3), T, V) :- !, 
+    elaborate(Env, E1, T1, V1),
+    elaborate(Env, E2, T2, V2),
+    elaborate(Env, E3, T3, V3),
+    T = T2,
+    T = T3,
+    V = if(V1, V2, V3).
 elaborate(Env, F, T, V) :-
     F =.. [Name|Args],
-    Name = asafas,
+    Name = ?,
     !,
-    aborate(Env, lambda(Name, F), T, V).
+    NFunc =.. [uf|Args],
+    V = lambda(uf, NFunc).
 elaborate(Env, F, T, V) :- 
     F =.. [Name|Args], 
     not(Args = []),
     !,
     split_last_arg(Args, NewArgs, Arg),
     (   Name = let 
-    ->  elaborate(Env, let(NewArgs, Arg), T, V)
-    ;   
-        NF =.. [Name|NewArgs],
-        elaborate(Env, app(NF, Arg), T, V),
+    ->  Args = [LV|LVS],
+        NL =.. [Name|LVS],
+        (   LVS = [] 
+        ->  elaborate(Env, LV, T, V) 
+        ;   elaborate(Env, let([LV], NL), T, V)
+        )
+    ;   NF =.. [Name|NewArgs],
+        elaborate(Env, app(NF, Arg), T, V)
     ).
 
 %% ¡¡ REMPLIR ICI !!
@@ -134,22 +147,27 @@ elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
 
 rebuild_forall(t, T, T).
+rebuild_forall(bool, T, bool).
 rebuild_forall(list(t), T, list(T)).
 rebuild_forall(forall(t, TI), T,  TO) :- rebuild_forall(TI, T, TO).
 rebuild_forall(->(T1,T2), T, ->(T1O, T2O)) :- 
     rebuild_forall(T1,T, T1O), 
     rebuild_forall(T2,T, T2O).
 
-decompose(Env, [], LetExp, Env, NewLetExp) :- reverse(LetExp, NewLetExp, []).
-decompose(Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
+decompose(BaseEnv, Env, [], LetExp, Env, NewLetExp) :- 
+    reverse(LetExp, NewLetExp, []).
+decompose(BaseEnv, Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
     !,
     X =.. [VarName|Args],
+
     (Args = [] 
-    ->  elaborate(Env, E, T, V)
+    -> elaborate([(VarName, TV)| BaseEnv], E, T, V)
     ;   Args = [Arg],
-        elaborate(Env, lambda(Arg, E), T, V)
+        elaborate([(VarName, TV)| BaseEnv], lambda(Arg, E), T, V)
     ),
-    decompose([(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
+    decompose(BaseEnv, [(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
+
+
 
 reverse([],Z,Z).
 reverse([H|T],Z,Acc) :- reverse(T,Z,[H|Acc]).
@@ -265,18 +283,24 @@ eval(_, N, N) :- number(N), !.
 eval(Env, var(Idx), V) :- !, nth_elem(Idx, Env, V).
 eval(Env, lambda(E), closure(Env, E)) :- !.
 eval(Env, app(E1, E2), V) :-
-    !, eval(Env, E1, V1),
+    !, 
+    eval(Env, E1, V1),
     eval(Env, E2, V2),
     apply(V1, V2, V).
 eval(Env, let(Elements, E), V) :-
     !,
     Elements = [HEAD|TAIL],
-    eval(Env, HEAD, VHEAD),
+    (HEAD =.. [lambda|_]
+    -> eval([HEAD|Env], HEAD, VHEAD)
+    ; eval(Env, HEAD, VHEAD)
+    ),
     (   TAIL = [] 
     ->  eval([VHEAD|Env], E, V)
     ;   eval([VHEAD|Env], let(TAIL, E), V)
     ).
-
+eval(Env, if(E1,E2,E3), V) :-
+    eval(Env, E1, V1),
+    (V1 -> eval(Env, E2, V) ; eval(Env, E3, V)).
 %% ¡¡ REMPLIR ICI !!
 eval(_, E, _) :-
     debug_print(eval_unknown(E)), fail.
@@ -295,6 +319,10 @@ builtin(empty, X, Res) :- X = [] -> Res = true; Res = false.
 builtin(car, [X|_], X).
 builtin(cdr, [_|XS], XS).
 builtin(cdr, [], []).
+builtin((-), N1, builtin(-(N1))).
+builtin(-(N1), N2, N) :- N is N1 - N2.
+builtin((=), N1, builtin(=(N1))).
+builtin(=(N1), N2, N) :- N1 =:= N2 -> N = true ; N = false.
 
 %% nth_elem(+I, +VS, -V)
 %% Renvoie le I-ème élément de la liste Vs.
@@ -307,6 +335,8 @@ nth_elem(I, [_|Vs], V) :- I > 0, I1 is I - 1, nth_elem(I1, Vs, V).
 %% env0(-Env)
 %% Renvoie l'environnement initial combiné (types et valeurs).
 env0([((+), (int -> int -> int), builtin(+)),
+      ((-),   (int -> int -> int), builtin(-)),
+      ((=),   (int -> int -> bool), builtin(=)),
       (true, bool, true),
       (false, bool, false),
       (nil, forall(t, list(t)), []),
@@ -347,10 +377,8 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %% runeval(app(lambda(f,f(3)),lambda(x,x+1)), T, V).
 %% runeval(let([x = 1], 3 + x), T, V).
 %% runeval(let(f(x) = x+1, f(3)), T, V).
-%% runeval(let([x = 1, x = lambda(a, a + 1)], (3 + x(x))), T, V).
+%% 
 %% runeval(cons(1,nil), T, V).
-
-%% runeval(?(1,nil), T, V).
 
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
 %%             length(?(42,?(41,?(40,nil))))
@@ -363,3 +391,6 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %%             length(?(42,?(41,?(40,nil))))
 %%             + length(cons(true,nil))),
 %%         runeval(let(f(x) = x+1, f(3)), T, V).T, V).3
+
+
+%% runeval(?(1,nil), T, V).
