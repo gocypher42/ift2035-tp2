@@ -81,7 +81,9 @@ elaborate(Env, lambda(X,E), T, lambda(DE)) :-
 elaborate(Env, +(E1, E2), T, V):- 
     !,
     elaborate(Env, app(app((+),E1),E2), T, V).
-elaborate(_, ?, T, V).
+elaborate(Env, ?, T, V) :-
+    build_inc_type(Env, TInc),
+    find_func_var(TInc, Env, Env, T, V).
 elaborate(Env, N, T, V) :- 
     atom(N), !,
     find_idx(N, Env, Id),
@@ -99,10 +101,12 @@ elaborate(Env, app(E1, E2), T, V) :-
     ->  rebuild_forall(TA2, TU, T2)
     ;   T2 = T2_
     ),
+    (   find_inc_idx(?, Env, IdInc) 
+    ->  nth_elem(IdInc, Env, Inc), Inc = (_, T2) ; T2 = T2),
     elaborate(Env, E1, TF, V1),
-    (   not(var(TF)), TF = forall(t, TFA) 
+    (   not(var(TF)), TF = forall(t, _) 
     ->  rebuild_forall(TF, TU, TI),
-        TI = ->(T2,T)
+        TI = ->(_,T)
     ;   TF = ->(T2, TO),
         (T2 = ->(TI, T) ; T = TO)
     ),
@@ -110,22 +114,15 @@ elaborate(Env, app(E1, E2), T, V) :-
 elaborate(Env, let([X|XS], E), T, V) :-
     !,
     decompose(Env, Env, [X|XS], [], NewEnv, LetExp),
-    writeln(LetExp),
     elaborate(NewEnv, E, T, VE),
     V = let(LetExp, VE).
 elaborate(Env, if(E1,E2,E3), T, V) :- !, 
-    elaborate(Env, E1, T1, V1),
+    elaborate(Env, E1, _, V1),
     elaborate(Env, E2, T2, V2),
     elaborate(Env, E3, T3, V3),
     T = T2,
     T = T3,
     V = if(V1, V2, V3).
-elaborate(Env, F, T, V) :-
-    F =.. [Name|Args],
-    Name = ?,
-    !,
-    NFunc =.. [uf|Args],
-    V = lambda(uf, NFunc).
 elaborate(Env, F, T, V) :- 
     F =.. [Name|Args], 
     not(Args = []),
@@ -139,41 +136,75 @@ elaborate(Env, F, T, V) :-
         ;   elaborate(Env, let([LV], NL), T, V)
         )
     ;   NF =.. [Name|NewArgs],
-        elaborate(Env, app(NF, Arg), T, V)
+        (   Name = ?
+        ->  add_last((?, _), Env, NEnv) 
+        ;   NEnv = Env),
+        elaborate(NEnv, app(NF, Arg), T, V)
     ).
 
 %% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
 
+add_last(Name, [], [Name]).
+add_last(Name, [X|Envs], [X|Env]) :- add_last(Name, Envs, Env).
+
+
 rebuild_forall(t, T, T).
-rebuild_forall(bool, T, bool).
+rebuild_forall(bool, _, bool).
 rebuild_forall(list(t), T, list(T)).
 rebuild_forall(forall(t, TI), T,  TO) :- rebuild_forall(TI, T, TO).
 rebuild_forall(->(T1,T2), T, ->(T1O, T2O)) :- 
     rebuild_forall(T1,T, T1O), 
     rebuild_forall(T2,T, T2O).
 
-decompose(BaseEnv, Env, [], LetExp, Env, NewLetExp) :- 
+decompose(_, Env, [], LetExp, Env, NewLetExp) :- 
     reverse(LetExp, NewLetExp, []).
 decompose(BaseEnv, Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
     !,
     X =.. [VarName|Args],
 
     (Args = [] 
-    -> elaborate([(VarName, TV)| BaseEnv], E, T, V)
+    -> elaborate([(VarName, _)| BaseEnv], E, T, V)
     ;   Args = [Arg],
-        elaborate([(VarName, TV)| BaseEnv], lambda(Arg, E), T, V)
+        elaborate([(VarName, _)| BaseEnv], lambda(Arg, E), T, V)
     ),
     decompose(BaseEnv, [(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
 
+build_inc_type(Env, T) :- 
+    split_last_inc(Env, NEnv, Last), 
+    Last = (_, T1),
+    (   find_idx(?,NEnv,_) 
+    ->  build_inc_type(NEnv, T2), T = (T1 -> T2)
+    ;   T = T1
+    ).
 
+find_func_var(TInc, [(_,TE)|Envs], Env, T, V) :-
+    (   TE = forall(_,TFA)
+    ->  rebuild_forall(TFA, _, TV)
+    ;   TV = TE
+    ),
+    remove_output_type(TV, TN),
+    (   Tinc = TN 
+    ->  find_func_idx(Var, Env, Idx), nth_elem(Idx, Env, (_,T)), V = var(Idx)
+    ; find_func_var(Tinc, Envs, Env, T, V)
+    ).
+
+
+remove_output_type(->(T1,T2), TN) :- 
+    (   T2 = ->(T3,T4) 
+    ->  remove_output_type(T2, T5), TN = (T1 -> T5) 
+    ; TN = T1
+    ).
 
 reverse([],Z,Z).
 reverse([H|T],Z,Acc) :- reverse(T,Z,[H|Acc]).
 
 find_idx(Var, [(Var,_)| _], Idx) :- !, Idx = 0.
 find_idx(Var, [_|Envs], Idx):- find_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
+
+find_inc_idx(Var, [(Var,T)| Envs], Idx) :- var(T),! , Idx = 0.
+find_inc_idx(Var, [_|Envs], Idx):- find_inc_idx(Var, Envs, Idx_), Idx is Idx_ + 1.
 
 find_func_idx(Var, [(Var, forall(T, ->(T2, T3)))|_], Idx) :- Idx = 0.
 find_func_idx(Var, [(Var, ->(_,_))|_], Idx) :- Idx = 0.
@@ -199,6 +230,10 @@ find_elem_idx(Var, [_|Envs], Idx):-
 split_last_arg([X|[]], [], X) :- !. 
 split_last_arg([X|XS], [X|T], Last) :- 
     split_last_arg(XS, T, Last).
+
+split_last_inc([(?, T)|[]], [], (?,T)) :- !. 
+split_last_inc([X|XS], [X|T], Last) :- 
+    split_last_inc(XS, T, Last).
 
 %% Ci-dessous, quelques prédicats qui vous seront utiles:
 %% - instantiate: correspond à la règle "σ ⊂ τ" de la donnée.
@@ -284,7 +319,11 @@ eval(Env, var(Idx), V) :- !, nth_elem(Idx, Env, V).
 eval(Env, lambda(E), closure(Env, E)) :- !.
 eval(Env, app(E1, E2), V) :-
     !, 
-    eval(Env, E1, V1),
+    eval(Env, E1, V1_),
+    (   V1_ =.. [lambda|_] , E1 = var(Id) 
+    ->  pop_last(Id, Env, NEnv), eval(NEnv, V1_, V1) 
+    ;   V1 = V1_
+    ),
     eval(Env, E2, V2),
     apply(V1, V2, V).
 eval(Env, let(Elements, E), V) :-
@@ -298,13 +337,15 @@ eval(Env, let(Elements, E), V) :-
     ->  eval([VHEAD|Env], E, V)
     ;   eval([VHEAD|Env], let(TAIL, E), V)
     ).
-eval(Env, if(E1,E2,E3), V) :-
+eval(Env, if(E1,E2,E3), V) :- !,
     eval(Env, E1, V1),
     (V1 -> eval(Env, E2, V) ; eval(Env, E3, V)).
 %% ¡¡ REMPLIR ICI !!
 eval(_, E, _) :-
     debug_print(eval_unknown(E)), fail.
 
+pop_last(0, Env, Env).
+pop_last(N, [_|Envs], Env) :- N_ is N - 1, pop_last(N, Envs, Env).
 
 %% apply(+Fun, +Arg, -Val)
 %% Evaluation des fonctions et des opérateurs prédéfinis.
@@ -377,20 +418,27 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %% runeval(app(lambda(f,f(3)),lambda(x,x+1)), T, V).
 %% runeval(let([x = 1], 3 + x), T, V).
 %% runeval(let(f(x) = x+1, f(3)), T, V).
-%% 
 %% runeval(cons(1,nil), T, V).
-
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
-%%             length(?(42,?(41,?(40,nil))))
+%%             length(cons(42,cons(41,cons(40,nil))))
 %%             + length(cons(1,nil))),
 %%         T, V).
 %% runeval(let([length(x) = if(empty(x), 0, 1 + length(cdr(x)))],
-%%             length(?(42,?(41,?(40,nil)))) + length(cons(4,nil))),
+%%             length(cons(42,cons(41,cons(40,nil)))) 
+%%            + length(cons(4,nil))),
 %%         T, V)
+%% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
+%%             length(cons(42,cons(41,cons(40,nil))))
+%%             + length(cons(true,nil))),
+%%         T, V).
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
 %%             length(?(42,?(41,?(40,nil))))
 %%             + length(cons(true,nil))),
-%%         runeval(let(f(x) = x+1, f(3)), T, V).T, V).3
+%%         T, V).
 
 
 %% runeval(?(1,nil), T, V).
+%% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))], length(?(42,?(41,?(40,nil)))) + length(cons(1,nil))), T, V).
+%% runeval(let([length(x) = if(empty(x), 0, 1 + length(cdr(x)))],
+%%             length(?(42,?(41,?(40,nil)))) + length(cons(4,nil))),
+%%         T, V).
