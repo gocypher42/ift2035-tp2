@@ -26,13 +26,55 @@ solutions.
 
 \section*{Apprentissage de Prolog}
 
+Comme une majorité de personnes dans la classe, cet exercice fût notre premier
+vrai travail pratique en programmation logique. Pour débuter le projet, nous 
+avons passer un peu de temps à lire et faire des recherches sur le language 
+pour venir palier à notre manque de connaissance.\\
+
+Voici quelques ressources utilisées: 
+\begin{itemize}
+    \item https://www.tutorialspoint.com/prolog/index.htm
+    \item https://ocw.upj.ac.id/files/Textbook-TIF212-Prolog-Tutorial-3.pdf
+    \item https://www.geeksforgeeks.org/prolog-an-introduction/
+\end{itemize}
+
 \section*{Utilisation des indice de Bruijn}
+
+L'utilisation des indices de Bruijn est un concept interessant pour l'implifier
+la référence au valeur des variables dans un environnment donné. Cependant, 
+nous avions de la difficulté à faire les liens entre les valeurs des indices 
+dans les exemples donnée. Notre intuition pensait que les indices devait 
+posséder d'autres valeur que celles mentionnées.
+
+Pour résoudre cette situation, nous avons faire des sous-routine de test 
+pour nous donner plus de vision sur le contenue de l'environnment en imprimant
+sont contenue au moment de trouver l'indice de la variable.
+
+De plus, lors de l'évaluation des fonctions, des erreurs sont survenue ce qui
+nous a induit vers un processus de recherche pour corriger le problème de 
+référence.
+
+\section*{Association de valeur aux variables indéfinies}
+
+Dans prolog, des variables variables peuvent être déclarer, mais instancier 
+vraiment plus tard dans l'exécution du programme. Ceci étati plus une surprise 
+de notre pars, car aillant plus travailler avec Java, Python et Javascript
+il nous était pas intuitif de passer des variables non définie dans des fonctions
+comme paramètres. 
+
+Un exemple concrete, serait l'élaboration des équation contenant un lambda.
+Dans le code fournie, la variable du lambda est insérée au début de l'environnment
+avec une référence vers une variable de type inconnue. Cette variable est ensuite 
+utiliser pour créé le type du lamabda. Cette utilisation de variable était un
+concepte différent pour nous.
+
+La solution a été de faire plus de petit exercices en utilisant les ressources 
+mentionnées plus haut. Ainsi que de trouver une facons d'associer des valeurs 
+à ces variables.
 
 \section*{Détermination des ? par inférence de type}
 
 \section*{Implentation de let mutuellement recursif}
-
-\section*{Association de valeur aux variables}
 
 \section*{Conclusion}
 
