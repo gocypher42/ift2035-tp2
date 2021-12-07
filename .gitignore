@@ -1,1 +1,7 @@
 mkrapport/
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+__latexindent_temp.tex
+*.synctex*
