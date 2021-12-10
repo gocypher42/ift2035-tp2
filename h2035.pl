@@ -81,6 +81,12 @@ elaborate(Env, lambda(X,E), T, lambda(DE)) :-
 elaborate(Env, +(E1, E2), T, V):- 
     !,
     elaborate(Env, app(app((+),E1),E2), T, V).
+elaborate(Env, =(E1, E2), T, V) :-
+    !,
+    elaborate(Env, app(app((=), E1), E2), T, V).
+elaborate(Env, -(E1, E2), T, V) :-
+    !,
+    elaborate(Env, app(app((-), E1), E2), T, V).
 elaborate(Env, ?, T, V) :-
     build_inc_type(Env, TInc),
     find_func_var(TInc, Env, Env, T, V).
@@ -113,7 +119,7 @@ elaborate(Env, app(E1, E2), T, V) :-
     V = app(V1, V2).
 elaborate(Env, let([X|XS], E), T, V) :-
     !,
-    decompose(Env, Env, [X|XS], [], NewEnv, LetExp),
+    decompose(Env, [X|XS], NewEnv, LetExp),
     elaborate(NewEnv, E, T, VE),
     V = let(LetExp, VE).
 elaborate(Env, if(E1,E2,E3), T, V) :- !, 
@@ -141,14 +147,11 @@ elaborate(Env, F, T, V) :-
         ;   NEnv = Env),
         elaborate(NEnv, app(NF, Arg), T, V)
     ).
-
-%% ¡¡ REMPLIR ICI !!
 elaborate(_, E, _, _) :-
     debug_print(elab_unknown(E)), fail.
 
 add_last(Name, [], [Name]).
 add_last(Name, [X|Envs], [X|Env]) :- add_last(Name, Envs, Env).
-
 
 rebuild_forall(t, T, T).
 rebuild_forall(bool, _, bool).
@@ -158,18 +161,34 @@ rebuild_forall(->(T1,T2), T, ->(T1O, T2O)) :-
     rebuild_forall(T1,T, T1O), 
     rebuild_forall(T2,T, T2O).
 
-decompose(_, Env, [], LetExp, Env, NewLetExp) :- 
-    reverse(LetExp, NewLetExp, []).
-decompose(BaseEnv, Env, [=(X,E)|XS], LetExp, NewEnv, NewLetExp) :-
-    !,
-    X =.. [VarName|Args],
+decompose(Env, Vars, NewEnv, LetExp) :-
+    get_var_names(Vars, VarNames),
+    gen_env(VarNames, Env, NewEnv),
+    decompose_elab(NewEnv, Vars, LetExp).
 
-    (Args = [] 
-    -> elaborate([(VarName, _)| BaseEnv], E, T, V)
-    ;   Args = [Arg],
-        elaborate([(VarName, _)| BaseEnv], lambda(Arg, E), T, V)
-    ),
-    decompose(BaseEnv, [(VarName, T)|Env], XS, [V|LetExp], NewEnv, NewLetExp).
+decompose_elab(Env, [], []).
+decompose_elab(Env, [=(X,E)|XS], [V|LetExp]):-
+     X =.. [VarName|Args],
+    gen_lambda(Args, E, El),
+    elaborate(Env, El, T, V),
+    decompose_elab(Env, XS, LetExp),
+    set_type(Env, VarName, T).
+
+set_type([(Var, T)|_], Var, T).
+set_type([_|Env], Var, T) :- set_type(Env, Var, T).
+
+gen_lambda([], E, E).
+gen_lambda([A|AS], E, lambda(A, Lambda)) :-
+    gen_lambda(AS, E, Lambda).
+
+get_var_names([], []).
+get_var_names([=(X,E)|XS], [Name|VarNames]) :-
+    X =.. [Name|_],
+    get_var_names(XS, VarNames).
+
+gen_env([], Env, Env).
+gen_env([V|VS], Env, NEnv) :-
+    gen_env(VS, [(V,_)|Env], NEnv).
 
 build_inc_type(Env, T) :- 
     split_last_inc(Env, NEnv, Last), 
@@ -320,29 +339,37 @@ eval(Env, lambda(E), closure(Env, E)) :- !.
 eval(Env, app(E1, E2), V) :-
     !, 
     eval(Env, E1, V1_),
-    (   V1_ =.. [lambda|_] , E1 = var(Id) 
-    ->  pop_last(Id, Env, NEnv), eval(NEnv, V1_, V1) 
-    ;   V1 = V1_
+    (   V1_ = closure(CEnv, F)
+    ->  close_lambda(CEnv, NEnv), V1 = closure(NEnv, F)
+    ;   NEnv = Env, V1 = V1_
     ),
     eval(Env, E2, V2),
-    apply(V1, V2, V).
+    apply(V1, V2, VA),
+    ( VA = var(_)  
+    ->  eval(NEnv, VA, V)
+    ; V = VA
+    ).
 eval(Env, let(Elements, E), V) :-
     !,
-    Elements = [HEAD|TAIL],
-    (HEAD =.. [lambda|_]
-    -> eval([HEAD|Env], HEAD, VHEAD)
-    ; eval(Env, HEAD, VHEAD)
-    ),
-    (   TAIL = [] 
-    ->  eval([VHEAD|Env], E, V)
-    ;   eval([VHEAD|Env], let(TAIL, E), V)
-    ).
+    reverse(Elements, RElements, []),
+    append(RElements, Env, TEnv),
+    close_lambda(TEnv, NEnv),
+    eval(NEnv, E, V).
 eval(Env, if(E1,E2,E3), V) :- !,
     eval(Env, E1, V1),
-    (V1 -> eval(Env, E2, V) ; eval(Env, E3, V)).
+    (V1 = true -> eval(Env, E2, V) ; eval(Env, E3, V)).
 %% ¡¡ REMPLIR ICI !!
 eval(_, E, _) :-
     debug_print(eval_unknown(E)), fail.
+
+close_lambda(IEnv, OEnv) :- close_lambda(IEnv, IEnv, OEnv).
+close_lambda([], _, []).
+close_lambda([V|VS], BEnv, [VO|OEnv]) :- 
+    (   V = lambda(_) 
+    ->  eval(BEnv, V, VO)
+    ;   VO = V
+    ),
+    close_lambda(VS, BEnv, OEnv).
 
 pop_last(0, Env, Env).
 pop_last(N, [_|Envs], Env) :- N_ is N - 1, pop_last(N, Envs, Env).
@@ -418,6 +445,7 @@ runeval(E, T, V) :- tenv0(TEnv), elaborate(TEnv, E, T, DE),
 %% runeval(app(lambda(f,f(3)),lambda(x,x+1)), T, V).
 %% runeval(let([x = 1], 3 + x), T, V).
 %% runeval(let(f(x) = x+1, f(3)), T, V).
+%% runeval(let([x = 1, x = lambda(a, a + 1)], (3 + x(x))), T, V).
 %% runeval(cons(1,nil), T, V).
 %% runeval(let([length = lambda(x, if(empty(x), 0, 1 + length(cdr(x))))],
 %%             length(cons(42,cons(41,cons(40,nil))))
